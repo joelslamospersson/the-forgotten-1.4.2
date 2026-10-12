@@ -194,7 +194,7 @@ class Monster final : public Creature
 
 		bool ignoreFieldDamage = false;
 		bool isIdle = true;
-		bool deferAttackRound = false;
+		bool openingAttackRound = false;
 		bool isMasterInRange = false;
 		bool randomStepping = false;
 		bool walkingToSpawn = false;

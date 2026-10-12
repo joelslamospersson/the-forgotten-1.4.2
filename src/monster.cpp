@@ -676,7 +676,7 @@ bool Monster::setAttackedCreature(Creature* creature)
 	const bool targetAccepted = Creature::setAttackedCreature(creature);
 	if (g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS) && attackedCreature != previousTarget) {
 		attackTicks = 0;
-		deferAttackRound = attackedCreature != nullptr;
+		openingAttackRound = attackedCreature != nullptr;
 	}
 	return targetAccepted;
 }
@@ -811,19 +811,16 @@ void Monster::doAttacking(uint32_t interval)
 		return;
 	}
 
-	if (interval == 0 && g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
-		return;
-	}
-
-	// Target selection runs in the same creature check as this attack, so that
-	// check would otherwise count toward the first round.
-	if (deferAttackRound) {
-		deferAttackRound = false;
+	const bool comboAttacks = g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS);
+	// checkCreatureAttack passes interval 0. The round gate treats that as already
+	// spent, so only the first lock-on uses it. Later calls stay on the shared clock.
+	if (comboAttacks && interval == 0 && !openingAttackRound) {
 		return;
 	}
 
 	bool updateLook = true;
 	bool resetTicks = interval != 0;
+	const bool fireOpeningRound = openingAttackRound;
 	attackTicks += interval;
 
 	const Position& myPos = getPosition();
@@ -863,7 +860,10 @@ void Monster::doAttacking(uint32_t interval)
 		updateLookDirection();
 	}
 
-	if (resetTicks) {
+	if (fireOpeningRound) {
+		openingAttackRound = false;
+		attackTicks = 0;
+	} else if (resetTicks) {
 		attackTicks = 0;
 	}
 }
@@ -896,15 +896,16 @@ bool Monster::canUseSpell(const Position& pos, const Position& targetPos,
 {
 	inRange = true;
 
-	if (sb.isMelee && !g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
-		if (isFleeing() || (OTSYS_TIME() - lastMeleeAttack) < sb.speed) {
-			return false;
-		}
-	} else {
-		if (sb.isMelee && isFleeing()) {
-			return false;
-		}
+	if (sb.isMelee && isFleeing()) {
+		return false;
+	}
 
+	const bool comboAttacks = g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS);
+	if (sb.isMelee && !comboAttacks) {
+		if ((OTSYS_TIME() - lastMeleeAttack) < sb.speed) {
+			return false;
+		}
+	} else if (!(comboAttacks && openingAttackRound)) {
 		if (sb.speed > attackTicks) {
 			resetTicks = false;
 			return false;
