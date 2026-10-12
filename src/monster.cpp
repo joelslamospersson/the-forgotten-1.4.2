@@ -670,6 +670,17 @@ bool Monster::selectTarget(Creature* creature)
 	return setFollowCreature(creature);
 }
 
+bool Monster::setAttackedCreature(Creature* creature)
+{
+	const Creature* previousTarget = attackedCreature;
+	const bool targetAccepted = Creature::setAttackedCreature(creature);
+	if (g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS) && attackedCreature != previousTarget) {
+		attackTicks = 0;
+		deferAttackRound = attackedCreature != nullptr;
+	}
+	return targetAccepted;
+}
+
 void Monster::setIdle(bool idle)
 {
 	if (isRemoved() || getHealth() <= 0) {
@@ -800,6 +811,17 @@ void Monster::doAttacking(uint32_t interval)
 		return;
 	}
 
+	if (interval == 0 && g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
+		return;
+	}
+
+	// Target selection runs in the same creature check as this attack, so that
+	// check would otherwise count toward the first round.
+	if (deferAttackRound) {
+		deferAttackRound = false;
+		return;
+	}
+
 	bool updateLook = true;
 	bool resetTicks = interval != 0;
 	attackTicks += interval;
@@ -846,6 +868,14 @@ void Monster::doAttacking(uint32_t interval)
 	}
 }
 
+bool Monster::hasExtraSwing()
+{
+	if (g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
+		return false;
+	}
+	return lastMeleeAttack == 0;
+}
+
 bool Monster::canUseAttack(const Position& pos, const Creature* target) const
 {
 	if (isHostile()) {
@@ -866,11 +896,15 @@ bool Monster::canUseSpell(const Position& pos, const Position& targetPos,
 {
 	inRange = true;
 
-	if (sb.isMelee) {
+	if (sb.isMelee && !g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
 		if (isFleeing() || (OTSYS_TIME() - lastMeleeAttack) < sb.speed) {
 			return false;
 		}
 	} else {
+		if (sb.isMelee && isFleeing()) {
+			return false;
+		}
+
 		if (sb.speed > attackTicks) {
 			resetTicks = false;
 			return false;

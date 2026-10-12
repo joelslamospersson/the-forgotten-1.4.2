@@ -147,6 +147,9 @@ deSpawnRadius = 50
 removeOnDespawn = true
 walkToSpawnRadius = 15
 
+-- monsterComboAttacks lines melee and attack spells up on one shared round so same-interval hits land together
+monsterComboAttacks = true
+
 -- Stamina
 staminaSystem = true
 

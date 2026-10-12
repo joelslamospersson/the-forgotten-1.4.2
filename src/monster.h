@@ -136,9 +136,8 @@ class Monster final : public Creature
 		bool getCombatValues(int32_t& min, int32_t& max) override;
 
 		void doAttacking(uint32_t interval) override;
-		bool hasExtraSwing() override {
-			return lastMeleeAttack == 0;
-		}
+		bool hasExtraSwing() override;
+		bool setAttackedCreature(Creature* creature) override;
 
 		bool searchTarget(TargetSearchType_t searchType = TARGETSEARCH_DEFAULT);
 		bool selectTarget(Creature* creature);
@@ -195,6 +194,7 @@ class Monster final : public Creature
 
 		bool ignoreFieldDamage = false;
 		bool isIdle = true;
+		bool deferAttackRound = false;
 		bool isMasterInRange = false;
 		bool randomStepping = false;
 		bool walkingToSpawn = false;
