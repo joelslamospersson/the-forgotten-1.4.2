@@ -440,6 +440,10 @@ void Monster::onCreatureEnter(Creature* creature)
 	}
 
 	onCreatureFound(creature, true);
+
+	if (!isSummon() && !followCreature && isOpponent(creature)) {
+		selectTarget(creature);
+	}
 }
 
 bool Monster::isFriend(const Creature* creature) const
@@ -670,6 +674,17 @@ bool Monster::selectTarget(Creature* creature)
 	return setFollowCreature(creature);
 }
 
+bool Monster::setAttackedCreature(Creature* creature)
+{
+	const Creature* previousTarget = attackedCreature;
+	const bool targetAccepted = Creature::setAttackedCreature(creature);
+	if (g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS) && attackedCreature != previousTarget) {
+		attackTicks = 0;
+		openingAttackRound = attackedCreature != nullptr;
+	}
+	return targetAccepted;
+}
+
 void Monster::setIdle(bool idle)
 {
 	if (isRemoved() || getHealth() <= 0) {
@@ -800,8 +815,17 @@ void Monster::doAttacking(uint32_t interval)
 		return;
 	}
 
+	const bool comboAttacks = g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS);
+	// checkCreatureAttack passes interval 0. The round gate treats that as already
+	// spent, so only the first lock-on uses it. Later calls stay on the shared clock.
+	if (comboAttacks && interval == 0 && !openingAttackRound) {
+		return;
+	}
+
 	bool updateLook = true;
 	bool resetTicks = interval != 0;
+	const bool fireOpeningRound = openingAttackRound;
+	bool attackWasInRange = false;
 	attackTicks += interval;
 
 	const Position& myPos = getPosition();
@@ -815,6 +839,7 @@ void Monster::doAttacking(uint32_t interval)
 		}
 
 		if (canUseSpell(myPos, targetPos, spellBlock, interval, inRange, resetTicks)) {
+			attackWasInRange = true;
 			if (spellBlock.chance >= static_cast<uint32_t>(uniform_random(1, 100))) {
 				if (updateLook) {
 					updateLookDirection();
@@ -841,9 +866,24 @@ void Monster::doAttacking(uint32_t interval)
 		updateLookDirection();
 	}
 
-	if (resetTicks) {
+	// Stairs and protection-zone steps often lock on while still out of reach.
+	// Hold the opening swing until an attack can actually land.
+	if (fireOpeningRound) {
+		if (attackWasInRange) {
+			openingAttackRound = false;
+			attackTicks = 0;
+		}
+	} else if (resetTicks) {
 		attackTicks = 0;
 	}
+}
+
+bool Monster::hasExtraSwing()
+{
+	if (g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
+		return openingAttackRound;
+	}
+	return lastMeleeAttack == 0;
 }
 
 bool Monster::canUseAttack(const Position& pos, const Creature* target) const
@@ -866,11 +906,16 @@ bool Monster::canUseSpell(const Position& pos, const Position& targetPos,
 {
 	inRange = true;
 
-	if (sb.isMelee) {
-		if (isFleeing() || (OTSYS_TIME() - lastMeleeAttack) < sb.speed) {
+	if (sb.isMelee && isFleeing()) {
+		return false;
+	}
+
+	const bool comboAttacks = g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS);
+	if (sb.isMelee && !comboAttacks) {
+		if ((OTSYS_TIME() - lastMeleeAttack) < sb.speed) {
 			return false;
 		}
-	} else {
+	} else if (!(comboAttacks && openingAttackRound)) {
 		if (sb.speed > attackTicks) {
 			resetTicks = false;
 			return false;
