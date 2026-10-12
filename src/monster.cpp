@@ -440,6 +440,10 @@ void Monster::onCreatureEnter(Creature* creature)
 	}
 
 	onCreatureFound(creature, true);
+
+	if (!isSummon() && !followCreature && isOpponent(creature)) {
+		selectTarget(creature);
+	}
 }
 
 bool Monster::isFriend(const Creature* creature) const
@@ -821,6 +825,7 @@ void Monster::doAttacking(uint32_t interval)
 	bool updateLook = true;
 	bool resetTicks = interval != 0;
 	const bool fireOpeningRound = openingAttackRound;
+	bool attackWasInRange = false;
 	attackTicks += interval;
 
 	const Position& myPos = getPosition();
@@ -834,6 +839,7 @@ void Monster::doAttacking(uint32_t interval)
 		}
 
 		if (canUseSpell(myPos, targetPos, spellBlock, interval, inRange, resetTicks)) {
+			attackWasInRange = true;
 			if (spellBlock.chance >= static_cast<uint32_t>(uniform_random(1, 100))) {
 				if (updateLook) {
 					updateLookDirection();
@@ -860,9 +866,13 @@ void Monster::doAttacking(uint32_t interval)
 		updateLookDirection();
 	}
 
+	// Stairs and protection-zone steps often lock on while still out of reach.
+	// Hold the opening swing until an attack can actually land.
 	if (fireOpeningRound) {
-		openingAttackRound = false;
-		attackTicks = 0;
+		if (attackWasInRange) {
+			openingAttackRound = false;
+			attackTicks = 0;
+		}
 	} else if (resetTicks) {
 		attackTicks = 0;
 	}
@@ -871,7 +881,7 @@ void Monster::doAttacking(uint32_t interval)
 bool Monster::hasExtraSwing()
 {
 	if (g_config.getBoolean(ConfigManager::MONSTER_COMBO_ATTACKS)) {
-		return false;
+		return openingAttackRound;
 	}
 	return lastMeleeAttack == 0;
 }
